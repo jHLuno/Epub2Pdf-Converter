@@ -1,10 +1,11 @@
-import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { XMLParser } from 'fast-xml-parser';
 import JSZip from 'jszip';
 import { parse } from 'node-html-parser';
-import PDFDocument from 'pdfkit';
+import puppeteer from 'puppeteer';
 
 const xmlParser = new XMLParser({
   ignoreAttributes: false,
@@ -51,9 +52,27 @@ function safeDecodeUri(value) {
   }
 }
 
+function safeZipEntryPath(zipPath) {
+  const normalized = path.posix.normalize(safeDecodeUri(zipPath));
+
+  if (normalized.startsWith('../') || normalized === '..' || path.posix.isAbsolute(normalized)) {
+    throw new Error('Could not read EPUB archive: unsafe file path.');
+  }
+
+  return normalized;
+}
+
 function resolveZipPath(fromFile, href) {
   const cleanHref = safeDecodeUri(href).split('#')[0];
-  return path.posix.normalize(path.posix.join(path.posix.dirname(fromFile), cleanHref));
+  return safeZipEntryPath(path.posix.join(path.posix.dirname(fromFile), cleanHref));
+}
+
+function isExternalUrl(value) {
+  return /^(?:[a-z][a-z0-9+.-]*:|#)/i.test(value);
+}
+
+function fileUrlForZipPath(renderDir, zipPath) {
+  return pathToFileURL(path.join(renderDir, ...safeZipEntryPath(zipPath).split('/'))).href;
 }
 
 async function readZipText(zip, filePath) {
@@ -66,9 +85,31 @@ async function readZipText(zip, filePath) {
   return file.async('string');
 }
 
+async function extractZip(zip, renderDir) {
+  const writes = [];
+
+  zip.forEach((relativePath, entry) => {
+    if (entry.dir) {
+      return;
+    }
+
+    const safePath = safeZipEntryPath(relativePath);
+    const outputPath = path.join(renderDir, ...safePath.split('/'));
+
+    writes.push(
+      entry.async('nodebuffer').then(async (buffer) => {
+        await fsp.mkdir(path.dirname(outputPath), { recursive: true });
+        await fsp.writeFile(outputPath, buffer);
+      })
+    );
+  });
+
+  await Promise.all(writes);
+}
+
 function isHtmlManifestItem(item) {
-  const mediaType = item['media-type'] || '';
-  const href = item.href || '';
+  const mediaType = item?.['media-type'] || '';
+  const href = item?.href || '';
   return mediaType.includes('html') || /\.(xhtml|html?)$/i.test(href);
 }
 
@@ -78,7 +119,7 @@ function extractTitle(packageDocument) {
   return normalizeWhitespace(title) || 'Converted EPUB';
 }
 
-async function readChapters(zip) {
+async function readPackage(zip) {
   const containerXml = await readZipText(zip, 'META-INF/container.xml');
   const container = xmlParser.parse(containerXml);
   const rootfile = asArray(container?.container?.rootfiles?.rootfile)[0];
@@ -88,116 +129,208 @@ async function readChapters(zip) {
     throw new Error('Could not read EPUB structure: missing package document.');
   }
 
-  const opfXml = await readZipText(zip, opfPath);
+  const safeOpfPath = safeZipEntryPath(opfPath);
+  const opfXml = await readZipText(zip, safeOpfPath);
   const packageDocument = xmlParser.parse(opfXml);
   const manifestItems = asArray(packageDocument?.package?.manifest?.item);
   const spineItems = asArray(packageDocument?.package?.spine?.itemref);
   const itemById = new Map(manifestItems.map((item) => [item.id, item]));
-  const spineHtmlItems = spineItems.map((itemref) => itemById.get(itemref.idref)).filter((item) => item && isHtmlManifestItem(item));
+  const spineHtmlItems = spineItems.map((itemref) => itemById.get(itemref.idref)).filter(isHtmlManifestItem);
   const readableItems = spineHtmlItems.length > 0 ? spineHtmlItems : manifestItems.filter(isHtmlManifestItem);
 
   if (readableItems.length === 0) {
     throw new Error('Could not read EPUB structure: no readable chapters found.');
   }
 
-  const chapters = [];
-
-  for (const item of readableItems) {
-    const chapterPath = resolveZipPath(opfPath, item.href);
-    const html = await readZipText(zip, chapterPath);
-    const paragraphs = htmlToParagraphs(html);
-
-    if (paragraphs.length > 0) {
-      chapters.push({ path: chapterPath, paragraphs });
-    }
-  }
-
   return {
     title: extractTitle(packageDocument),
-    chapters
+    chapters: readableItems.map((item) => resolveZipPath(safeOpfPath, item.href))
   };
 }
 
-function htmlToParagraphs(html) {
-  const root = parse(html, {
-    blockTextElements: {
-      script: false,
-      style: false,
-      pre: true
-    },
-    comment: false
+function rewriteCssUrls(css, fromFile, renderDir) {
+  return css.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi, (match, quote, rawUrl) => {
+    const trimmed = rawUrl.trim();
+
+    if (!trimmed || isExternalUrl(trimmed)) {
+      return match;
+    }
+
+    const resolved = resolveZipPath(fromFile, trimmed);
+    return `url(${quote || '"'}${fileUrlForZipPath(renderDir, resolved)}${quote || '"'})`;
   });
-
-  for (const node of root.querySelectorAll('script, style, nav')) {
-    node.remove();
-  }
-
-  const blockNodes = root.querySelectorAll('h1, h2, h3, h4, h5, h6, p, li, blockquote');
-  const paragraphs = blockNodes.map((node) => normalizeWhitespace(node.textContent)).filter(Boolean);
-
-  if (paragraphs.length > 0) {
-    return paragraphs;
-  }
-
-  const fallback = normalizeWhitespace(root.textContent);
-  return fallback ? [fallback] : [];
 }
 
-async function writePdf({ title, chapters }, outputPath) {
+function rewriteSrcset(srcset, fromFile, renderDir) {
+  return srcset
+    .split(',')
+    .map((candidate) => {
+      const trimmed = candidate.trim();
+      const [url, ...descriptor] = trimmed.split(/\s+/);
+
+      if (!url || isExternalUrl(url)) {
+        return trimmed;
+      }
+
+      const resolved = resolveZipPath(fromFile, url);
+      return [fileUrlForZipPath(renderDir, resolved), ...descriptor].join(' ');
+    })
+    .join(', ');
+}
+
+function rewriteElementUrls(root, chapterPath, renderDir) {
+  for (const node of root.querySelectorAll('*')) {
+    for (const attribute of ['src', 'poster', 'href', 'xlink:href']) {
+      const value = node.getAttribute(attribute);
+
+      if (!value || isExternalUrl(value)) {
+        continue;
+      }
+
+      const isStylesheetLink = attribute === 'href' && node.tagName?.toLowerCase() === 'link';
+      const isAnchor = attribute === 'href' && node.tagName?.toLowerCase() === 'a';
+
+      if (isAnchor || isStylesheetLink) {
+        continue;
+      }
+
+      node.setAttribute(attribute, fileUrlForZipPath(renderDir, resolveZipPath(chapterPath, value)));
+    }
+
+    const srcset = node.getAttribute('srcset');
+    if (srcset) {
+      node.setAttribute('srcset', rewriteSrcset(srcset, chapterPath, renderDir));
+    }
+
+    const style = node.getAttribute('style');
+    if (style) {
+      node.setAttribute('style', rewriteCssUrls(style, chapterPath, renderDir));
+    }
+  }
+}
+
+function collectChapterStyles(root, chapterPath, renderDir) {
+  const styles = [];
+
+  for (const link of root.querySelectorAll('link')) {
+    const rel = link.getAttribute('rel') || '';
+    const href = link.getAttribute('href');
+
+    if (!href || !rel.toLowerCase().includes('stylesheet') || isExternalUrl(href)) {
+      continue;
+    }
+
+    styles.push(`<link rel="stylesheet" href="${fileUrlForZipPath(renderDir, resolveZipPath(chapterPath, href))}">`);
+  }
+
+  for (const style of root.querySelectorAll('style')) {
+    styles.push(`<style>${rewriteCssUrls(style.innerHTML, chapterPath, renderDir)}</style>`);
+  }
+
+  return styles;
+}
+
+async function buildPrintableHtml({ title, chapters }, zip, renderDir) {
+  const styleBlocks = [];
+  const sections = [];
+
+  for (const chapterPath of chapters) {
+    const html = await readZipText(zip, chapterPath);
+    const root = parse(html, {
+      blockTextElements: {
+        script: false,
+        style: true,
+        pre: true
+      },
+      comment: false
+    });
+
+    for (const node of root.querySelectorAll('script')) {
+      node.remove();
+    }
+
+    styleBlocks.push(...collectChapterStyles(root, chapterPath, renderDir));
+    rewriteElementUrls(root, chapterPath, renderDir);
+
+    const body = root.querySelector('body') || root;
+    const bodyStyle = body.getAttribute?.('style');
+    const sectionStyle = bodyStyle ? ` style="${rewriteCssUrls(bodyStyle, chapterPath, renderDir)}"` : '';
+    sections.push(`<section class="epub-chapter"${sectionStyle}>${body.innerHTML}</section>`);
+  }
+
+  const escapedTitle = title.replace(/[&<>"']/g, (char) => {
+    const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return entities[char];
+  });
+
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>${escapedTitle}</title>
+    <style>
+      @page { margin: 18mm 16mm; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        color: #111;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Arial, sans-serif;
+        font-size: 12pt;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+      }
+      img, svg, video, canvas {
+        max-width: 100%;
+        height: auto;
+      }
+      table {
+        max-width: 100%;
+        border-collapse: collapse;
+      }
+      pre {
+        white-space: pre-wrap;
+      }
+      .epub-chapter {
+        break-after: page;
+      }
+      .epub-chapter:last-child {
+        break-after: auto;
+      }
+    </style>
+    ${styleBlocks.join('\n')}
+  </head>
+  <body>
+    ${sections.join('\n')}
+  </body>
+</html>`;
+}
+
+async function printHtmlToPdf(htmlPath, outputPath) {
   await fsp.mkdir(path.dirname(outputPath), { recursive: true });
 
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({
-      size: 'A4',
-      margin: 54,
-      compress: false,
-      info: {
-        Title: title
-      }
-    });
-    const output = fs.createWriteStream(outputPath);
-    let settled = false;
-
-    function settle(callback, value) {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      callback(value);
-    }
-
-    output.on('finish', () => settle(resolve));
-    output.on('error', (error) => settle(reject, error));
-    doc.on('error', (error) => settle(reject, error));
-
-    doc.pipe(output);
-    doc.font('Times-Bold').fontSize(22).text(title, { lineGap: 4 });
-    doc.moveDown(1);
-
-    const readableChapters = chapters.filter((chapter) => chapter.paragraphs.length > 0);
-
-    if (readableChapters.length === 0) {
-      doc.font('Times-Roman').fontSize(11).text('This EPUB did not contain readable text.');
-      doc.end();
-      return;
-    }
-
-    readableChapters.forEach((chapter, chapterIndex) => {
-      if (chapterIndex > 0) {
-        doc.addPage();
-      }
-
-      chapter.paragraphs.forEach((paragraph, paragraphIndex) => {
-        const isLikelyHeading = paragraphIndex === 0 && paragraph.length < 120;
-        doc.font(isLikelyHeading ? 'Times-Bold' : 'Times-Roman').fontSize(isLikelyHeading ? 16 : 11);
-        doc.text(paragraph, { lineGap: 2, paragraphGap: 8 });
-        doc.moveDown(isLikelyHeading ? 0.7 : 0.35);
-      });
-    });
-
-    doc.end();
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--allow-file-access-from-files', '--disable-web-security']
   });
+
+  try {
+    const page = await browser.newPage();
+    await page.goto(pathToFileURL(htmlPath).href, { waitUntil: 'networkidle0' });
+    await page.pdf({
+      path: outputPath,
+      format: 'A4',
+      printBackground: true,
+      preferCSSPageSize: true,
+      margin: {
+        top: '0.45in',
+        right: '0.45in',
+        bottom: '0.45in',
+        left: '0.45in'
+      }
+    });
+  } finally {
+    await browser.close();
+  }
 }
 
 export async function convertSimpleEpubToPdf(inputPath, outputPath) {
@@ -210,6 +343,16 @@ export async function convertSimpleEpubToPdf(inputPath, outputPath) {
     throw new Error('Could not read EPUB archive.');
   }
 
-  const content = await readChapters(zip);
-  await writePdf(content, outputPath);
+  const renderDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'epub-render-'));
+
+  try {
+    await extractZip(zip, renderDir);
+    const content = await readPackage(zip);
+    const html = await buildPrintableHtml(content, zip, renderDir);
+    const htmlPath = path.join(renderDir, 'combined.html');
+    await fsp.writeFile(htmlPath, html);
+    await printHtmlToPdf(htmlPath, outputPath);
+  } finally {
+    await fsp.rm(renderDir, { recursive: true, force: true });
+  }
 }
