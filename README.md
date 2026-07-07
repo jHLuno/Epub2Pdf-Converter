@@ -1,6 +1,6 @@
 # Epub2Pdf-Converter
 
-A small web app for converting one `.epub` file into one `.pdf` file.
+A small web app for converting one `.epub` file into one `.pdf` file. Because a lot of converters don't work properly with some types of books. Check it here (https://epub2pdf.up.railway.app/)
 
 ## Requirements
 
