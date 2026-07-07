@@ -12,6 +12,20 @@ const safeMaxFileSizeMb = Number.isFinite(configuredMaxFileSizeMb) ? Math.max(1,
 const defaultMaxFileSizeBytes = safeMaxFileSizeMb * 1024 * 1024;
 const uploadDir = path.join(os.tmpdir(), 'epub-to-pdf-uploads');
 const genericConversionError = 'Conversion failed. Please try another EPUB file.';
+const defaultPublicSiteUrl = 'https://epub2pdf.up.railway.app';
+const schemaScriptHash = "'sha256-sUNvtRAv8xg37U1OV+aE4EfSFnnoVE7ohqlHqmtV0fo='";
+
+function normalizePublicSiteUrl(siteUrl = process.env.PUBLIC_SITE_URL || defaultPublicSiteUrl) {
+  try {
+    const url = new URL(siteUrl);
+    url.hash = '';
+    url.search = '';
+    url.pathname = url.pathname === '/' ? '' : url.pathname.replace(/\/+$/, '');
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return defaultPublicSiteUrl;
+  }
+}
 
 async function removeWorkDir(workDir) {
   if (workDir) {
@@ -49,14 +63,37 @@ function uploadSingleBook(maxFileSizeBytes) {
 export function createApp({ convert = convertEpubToPdf, maxFileSizeBytes = defaultMaxFileSizeBytes } = {}) {
   const app = express();
   const publicDir = path.resolve(process.cwd(), 'public');
+  const publicSiteUrl = normalizePublicSiteUrl();
 
   app.disable('x-powered-by');
   app.use((_req, res, next) => {
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+    res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self' ${schemaScriptHash}; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
     next();
+  });
+
+  app.get('/robots.txt', (_req, res) => {
+    res.type('text/plain').send(`User-agent: *
+Allow: /
+
+Sitemap: ${publicSiteUrl}/sitemap.xml
+`);
+  });
+
+  app.get('/sitemap.xml', (_req, res) => {
+    const lastmod = new Date().toISOString().slice(0, 10);
+    res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>${publicSiteUrl}/</loc>
+    <lastmod>${lastmod}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>
+`);
   });
 
   app.use(express.static(publicDir));
