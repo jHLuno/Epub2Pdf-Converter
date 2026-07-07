@@ -1,4 +1,4 @@
-# EPUB to PDF
+# Epub2Pdf-Converter
 
 A small web app for converting one `.epub` file into one `.pdf` file.
 
