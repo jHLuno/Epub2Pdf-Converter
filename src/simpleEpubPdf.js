@@ -47,6 +47,13 @@ function normalizeWhitespace(value) {
   return value.replace(/\s+/g, ' ').trim();
 }
 
+function escapeHtml(value) {
+  return value.replace(/[&<>"']/g, (char) => {
+    const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return entities[char];
+  });
+}
+
 function safeDecodeUri(value) {
   try {
     return decodeURI(value);
@@ -294,10 +301,7 @@ async function buildPrintableHtml({ title, chapters, fixedLayout }, zip, renderD
     sections.push(`<section class="epub-chapter"${sectionStyle}>${body.innerHTML}</section>`);
   }
 
-  const escapedTitle = title.replace(/[&<>"']/g, (char) => {
-    const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-    return entities[char];
-  });
+  const escapedTitle = escapeHtml(title);
 
   const pageRule = fixedPageSize
     ? `@page { size: ${fixedPageSize.width}px ${fixedPageSize.height}px; margin: 0; }`
@@ -365,6 +369,7 @@ async function printHtmlToPdf(htmlPath, outputPath, { pageSize } = {}) {
 
   try {
     const page = await browser.newPage();
+    await page.setJavaScriptEnabled(false);
     page.setDefaultTimeout(renderTimeoutMs);
     page.setDefaultNavigationTimeout(Math.min(renderTimeoutMs, 60_000));
     await page.setRequestInterception(true);
@@ -412,7 +417,52 @@ async function printHtmlToPdf(htmlPath, outputPath, { pageSize } = {}) {
   }
 }
 
-async function renderFixedLayoutPdf({ chapters }, zip, renderDir, outputPath) {
+async function buildFixedLayoutPageHtml({ title, chapterPath }, zip, renderDir) {
+  const html = await readZipText(zip, chapterPath);
+  const root = parse(html, {
+    blockTextElements: {
+      script: false,
+      style: true,
+      pre: true
+    },
+    comment: false
+  });
+
+  for (const node of root.querySelectorAll('script')) {
+    node.remove();
+  }
+
+  const viewport = parseViewport(root) || { width: 482, height: 680 };
+  const body = root.querySelector('body') || root;
+  const bodyStyle = body.getAttribute?.('style');
+  const viewportStyle = `width:${viewport.width}px;height:${viewport.height}px;margin:0;`;
+  const combinedStyle = `${viewportStyle}${bodyStyle ? rewriteCssUrls(bodyStyle, chapterPath, renderDir) : ''}`;
+  rewriteElementUrls(root, chapterPath, renderDir);
+
+  return {
+    viewport,
+    html: `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' file: data:; script-src 'none'; img-src file: data:; style-src 'unsafe-inline' file: data:;">
+    <title>${escapeHtml(title)}</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { width: ${viewport.width}px; height: ${viewport.height}px; margin: 0; padding: 0; overflow: hidden; }
+      img, svg, video, canvas { max-width: 100%; height: auto; }
+      .epub-fixed-page { position: relative; width: ${viewport.width}px; height: ${viewport.height}px; overflow: hidden; }
+    </style>
+    ${collectChapterStyles(root, chapterPath, renderDir).join('\n')}
+  </head>
+  <body>
+    <section class="epub-fixed-page" style="${combinedStyle}">${body.innerHTML}</section>
+  </body>
+</html>`
+  };
+}
+
+async function renderFixedLayoutPdf({ title, chapters }, zip, renderDir, outputPath) {
   await fsp.mkdir(path.dirname(outputPath), { recursive: true });
 
   const pdf = await PDFDocument.create();
@@ -425,6 +475,7 @@ async function renderFixedLayoutPdf({ chapters }, zip, renderDir, outputPath) {
 
   try {
     const page = await browser.newPage();
+    await page.setJavaScriptEnabled(false);
     page.setDefaultTimeout(renderTimeoutMs);
     page.setDefaultNavigationTimeout(Math.min(renderTimeoutMs, 60_000));
     await page.setRequestInterception(true);
@@ -439,24 +490,17 @@ async function renderFixedLayoutPdf({ chapters }, zip, renderDir, outputPath) {
       request.abort();
     });
 
-    for (const chapterPath of chapters) {
-      const html = await readZipText(zip, chapterPath);
-      const root = parse(html, {
-        blockTextElements: {
-          script: false,
-          style: true,
-          pre: true
-        },
-        comment: false
-      });
-      const viewport = parseViewport(root) || { width: 482, height: 680 };
+    for (const [index, chapterPath] of chapters.entries()) {
+      const { viewport, html } = await buildFixedLayoutPageHtml({ title, chapterPath }, zip, renderDir);
+      const sanitizedPath = path.join(renderDir, `sanitized-fixed-page-${index}.html`);
+      await fsp.writeFile(sanitizedPath, html);
 
       await page.setViewport({
         width: Math.ceil(viewport.width),
         height: Math.ceil(viewport.height),
         deviceScaleFactor: 2
       });
-      await page.goto(fileUrlForZipPath(renderDir, chapterPath), {
+      await page.goto(pathToFileURL(sanitizedPath).href, {
         waitUntil: 'load',
         timeout: Math.min(renderTimeoutMs, 60_000)
       });

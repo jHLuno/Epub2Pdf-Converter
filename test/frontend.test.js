@@ -11,6 +11,10 @@ describe('converter page markup', () => {
     expect(html).toContain('accept=".epub,application/epub+zip"');
     expect(html).toContain('id="dropZone"');
     expect(html).toContain('id="convertButton"');
+    expect(html).toContain('id="conversionProgress"');
+    expect(html).toContain('role="progressbar"');
+    expect(html).toContain('id="progressTrack"');
+    expect(html).toContain('id="progressPercent"');
     expect(html).toContain('href="/styles.css"');
     expect(html).toContain('src="/app.js"');
   });

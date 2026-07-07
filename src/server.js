@@ -5,10 +5,13 @@ import path from 'node:path';
 import express from 'express';
 import multer from 'multer';
 import { convertEpubToPdf } from './converter.js';
-import { isEpubUpload, sanitizeBaseName } from './fileValidation.js';
+import { isEpubArchive, isEpubUpload, sanitizeBaseName } from './fileValidation.js';
 
-const defaultMaxFileSizeBytes = 750 * 1024 * 1024;
+const configuredMaxFileSizeMb = Number(process.env.MAX_FILE_SIZE_MB || 30);
+const safeMaxFileSizeMb = Number.isFinite(configuredMaxFileSizeMb) ? Math.max(1, configuredMaxFileSizeMb) : 30;
+const defaultMaxFileSizeBytes = safeMaxFileSizeMb * 1024 * 1024;
 const uploadDir = path.join(os.tmpdir(), 'epub-to-pdf-uploads');
+const genericConversionError = 'Conversion failed. Please try another EPUB file.';
 
 async function removeWorkDir(workDir) {
   if (workDir) {
@@ -47,6 +50,15 @@ export function createApp({ convert = convertEpubToPdf, maxFileSizeBytes = defau
   const app = express();
   const publicDir = path.resolve(process.cwd(), 'public');
 
+  app.disable('x-powered-by');
+  app.use((_req, res, next) => {
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    next();
+  });
+
   app.use(express.static(publicDir));
 
   app.post('/convert', async (req, res) => {
@@ -65,6 +77,12 @@ export function createApp({ convert = convertEpubToPdf, maxFileSizeBytes = defau
       if (!isEpubUpload(req.file)) {
         await removeUpload(uploadPath);
         res.status(400).json({ error: 'Only .epub files can be converted.' });
+        return;
+      }
+
+      if (!(await isEpubArchive(uploadPath))) {
+        await removeUpload(uploadPath);
+        res.status(400).json({ error: 'Upload a valid EPUB archive.' });
         return;
       }
 
@@ -95,7 +113,7 @@ export function createApp({ convert = convertEpubToPdf, maxFileSizeBytes = defau
       }
 
       console.error('EPUB conversion failed:', error);
-      res.status(500).json({ error: error.message || 'Conversion failed.' });
+      res.status(500).json({ error: genericConversionError });
     }
   });
 

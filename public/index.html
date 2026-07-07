@@ -3,34 +3,78 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>EPUB to PDF</title>
+    <title>Epub2Pdf Converter</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
+    <div class="atmosphere" aria-hidden="true">
+      <span class="cloud cloud-one"></span>
+      <span class="cloud cloud-two"></span>
+      <span class="sun"></span>
+      <span class="hill hill-back"></span>
+      <span class="hill hill-front"></span>
+    </div>
+
     <main class="shell">
       <section class="converter" aria-labelledby="title">
         <div class="intro">
-          <p class="eyebrow">EPUB to PDF</p>
-          <h1 id="title">Convert an EPUB into a PDF.</h1>
+          <p class="eyebrow">Epub2Pdf Converter</p>
+          <h1 id="title">Turn EPUBs into quiet little PDFs.</h1>
+          <p class="lede">Drop a book, let the tiny workshop render the pages, and download a clean PDF when the binding is ready.</p>
+          <div class="trust-row" aria-label="Converter details">
+            <span>Local upload</span>
+            <span>30 MB friendly</span>
+            <span>EPUB archive check</span>
+          </div>
         </div>
 
         <form id="convertForm" class="panel">
+          <div class="panel-heading">
+            <span class="panel-kicker">Book workshop</span>
+            <span class="panel-status">Ready</span>
+          </div>
+
           <input id="fileInput" class="file-input" name="book" type="file" accept=".epub,application/epub+zip">
 
           <label id="dropZone" class="drop-zone" for="fileInput">
-            <span class="file-mark" aria-hidden="true">
-              <span class="file-mark-top"></span>
-              <span class="file-mark-label">PDF</span>
-              <span class="file-mark-line"></span>
-              <span class="file-mark-line short"></span>
+            <span class="pixel-book" aria-hidden="true">
+              <span class="book-cover"></span>
+              <span class="book-pages"></span>
+              <span class="book-spark spark-one"></span>
+              <span class="book-spark spark-two"></span>
             </span>
-            <span class="drop-title">Drop your EPUB here</span>
-            <span class="drop-copy">or tap to choose a file</span>
+            <span class="drop-title">Drop your EPUB into the meadow</span>
+            <span class="drop-copy">or tap to choose one file</span>
           </label>
 
           <div class="file-row">
             <span id="fileName" class="file-name">No file selected</span>
             <button id="clearButton" class="text-button" type="button" hidden>Clear</button>
+          </div>
+
+          <div id="conversionProgress" class="progress-card" role="progressbar" aria-label="Estimated conversion progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden>
+            <div class="progress-scene" aria-hidden="true">
+              <span class="rail"></span>
+              <span class="runner-book">
+                <span class="runner-page"></span>
+              </span>
+              <span class="pixel-star star-one"></span>
+              <span class="pixel-star star-two"></span>
+              <span class="pixel-star star-three"></span>
+            </div>
+            <div class="progress-copy">
+              <span id="progressStage" class="progress-stage">Warming up the workshop</span>
+              <span id="progressPercent" class="progress-percent">0%</span>
+            </div>
+            <div class="progress-track">
+              <span id="progressTrack" class="progress-fill"></span>
+            </div>
+            <ol class="stage-list" aria-label="Conversion stages">
+              <li class="stage-item is-active" data-stage="0">Upload</li>
+              <li class="stage-item" data-stage="1">Unpack</li>
+              <li class="stage-item" data-stage="2">Render</li>
+              <li class="stage-item" data-stage="3">Bind</li>
+            </ol>
           </div>
 
           <button id="convertButton" class="primary-button" type="submit" disabled>Convert to PDF</button>

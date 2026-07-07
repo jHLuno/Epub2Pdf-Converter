@@ -213,6 +213,54 @@ async function makeFixedLayoutEpub(filePath) {
   await fs.writeFile(filePath, buffer);
 }
 
+async function makeScriptedFixedLayoutEpub(filePath) {
+  const zip = new JSZip();
+  zip.file('mimetype', 'application/epub+zip');
+  zip.file(
+    'META-INF/container.xml',
+    `<?xml version="1.0"?>
+    <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+      <rootfiles>
+        <rootfile full-path="OPS/content.opf" media-type="application/oebps-package+xml"/>
+      </rootfiles>
+    </container>`
+  );
+  zip.file(
+    'OPS/content.opf',
+    `<?xml version="1.0" encoding="utf-8"?>
+    <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="book-id" version="3.0">
+      <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+        <dc:title>Scripted Fixed Layout Test</dc:title>
+        <meta property="rendition:layout">pre-paginated</meta>
+      </metadata>
+      <manifest>
+        <item id="page-one" href="page1.xhtml" media-type="application/xhtml+xml"/>
+      </manifest>
+      <spine>
+        <itemref idref="page-one"/>
+      </spine>
+    </package>`
+  );
+  zip.file(
+    'OPS/page1.xhtml',
+    `<?xml version="1.0" encoding="UTF-8"?>
+    <html xmlns="http://www.w3.org/1999/xhtml">
+      <head><meta charset="utf-8" /><meta name="viewport" content="width=420,height=600" /></head>
+      <body style="width:420px;height:600px;margin:0;background:white">
+        <span style="position:absolute;left:20px;top:20px;font-size:28px;color:#111">SAFE PAGE</span>
+        <script>
+          const marker = document.createElement('div');
+          marker.style.cssText = 'position:absolute;left:300px;top:420px;width:90px;height:90px;background:#000';
+          document.body.append(marker);
+        </script>
+      </body>
+    </html>`
+  );
+
+  const buffer = await zip.generateAsync({ type: 'nodebuffer' });
+  await fs.writeFile(filePath, buffer);
+}
+
 async function renderPdfPage(pdfPath, pageNumber, outputPrefix) {
   await execFileAsync('pdftoppm', ['-f', String(pageNumber), '-singlefile', '-png', '-r', '72', pdfPath, outputPrefix]);
   return `${outputPrefix}.png`;
@@ -348,5 +396,24 @@ describe('convertSimpleEpubToPdf', () => {
         bottom: 0.98
       })
     ).resolves.toBe(true);
+  }, 30000);
+
+  it('does not execute scripts while rendering fixed-layout pages', async () => {
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'simple-epub-test-'));
+    const inputPath = path.join(tmpRoot, 'scripted-fixed.epub');
+    const outputPath = path.join(tmpRoot, 'scripted-fixed.pdf');
+    await makeScriptedFixedLayoutEpub(inputPath);
+
+    await convertSimpleEpubToPdf(inputPath, outputPath);
+
+    const pageImage = await renderPdfPage(outputPath, 1, path.join(tmpRoot, 'scripted-fixed-page'));
+    await expect(
+      hasDarkPixelInRegion(pageImage, {
+        left: 0.7,
+        top: 0.7,
+        right: 0.98,
+        bottom: 0.98
+      })
+    ).resolves.toBe(false);
   }, 30000);
 });
