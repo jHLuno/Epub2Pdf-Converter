@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { findConverterCommand, runEbookConvert } from '../src/converter.js';
+import { convertEpubToPdf, findConverterCommand, runEbookConvert } from '../src/converter.js';
 
 describe('findConverterCommand', () => {
   it('prefers an explicit converter path', () => {
@@ -70,5 +70,38 @@ describe('runEbookConvert', () => {
     await expect(runEbookConvert('/in.epub', '/out.pdf', { spawn, command: 'ebook-convert' })).rejects.toThrow(
       'bad epub'
     );
+  });
+});
+
+describe('convertEpubToPdf', () => {
+  it('uses Calibre conversion when it succeeds', async () => {
+    const convertWithCalibre = vi.fn(async () => {});
+    const fallback = vi.fn(async () => {});
+
+    await convertEpubToPdf('/in.epub', '/out.pdf', { convertWithCalibre, fallback });
+
+    expect(convertWithCalibre).toHaveBeenCalledWith('/in.epub', '/out.pdf');
+    expect(fallback).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the built-in converter when Calibre is missing', async () => {
+    const convertWithCalibre = vi.fn(async () => {
+      throw new Error('Install Calibre and make sure ebook-convert is available, or set EBOOK_CONVERT_PATH.');
+    });
+    const fallback = vi.fn(async () => {});
+
+    await convertEpubToPdf('/in.epub', '/out.pdf', { convertWithCalibre, fallback });
+
+    expect(fallback).toHaveBeenCalledWith('/in.epub', '/out.pdf');
+  });
+
+  it('keeps real Calibre conversion failures visible', async () => {
+    const convertWithCalibre = vi.fn(async () => {
+      throw new Error('bad epub');
+    });
+    const fallback = vi.fn(async () => {});
+
+    await expect(convertEpubToPdf('/in.epub', '/out.pdf', { convertWithCalibre, fallback })).rejects.toThrow('bad epub');
+    expect(fallback).not.toHaveBeenCalled();
   });
 });

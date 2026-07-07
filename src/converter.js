@@ -1,4 +1,5 @@
 import { spawn as defaultSpawn } from 'node:child_process';
+import { convertSimpleEpubToPdf } from './simpleEpubPdf.js';
 
 export function findConverterCommand({ env = process.env, platform = process.platform } = {}) {
   if (env.EBOOK_CONVERT_PATH) {
@@ -55,4 +56,21 @@ export function runEbookConvert(inputPath, outputPath, { spawn = defaultSpawn, c
       reject(new Error(stderr.trim() || `ebook-convert exited with code ${code}`));
     });
   });
+}
+
+export async function convertEpubToPdf(
+  inputPath,
+  outputPath,
+  { convertWithCalibre = runEbookConvert, fallback = convertSimpleEpubToPdf } = {}
+) {
+  try {
+    await convertWithCalibre(inputPath, outputPath);
+  } catch (error) {
+    if (error.message?.includes('Install Calibre')) {
+      await fallback(inputPath, outputPath);
+      return;
+    }
+
+    throw error;
+  }
 }

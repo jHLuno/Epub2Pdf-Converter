@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import express from 'express';
 import multer from 'multer';
-import { runEbookConvert } from './converter.js';
+import { convertEpubToPdf } from './converter.js';
 import { isEpubUpload, sanitizeBaseName } from './fileValidation.js';
 
 const upload = multer({
@@ -18,7 +18,7 @@ async function removeWorkDir(workDir) {
   await fs.rm(workDir, { recursive: true, force: true });
 }
 
-export function createApp({ convert = runEbookConvert } = {}) {
+export function createApp({ convert = convertEpubToPdf } = {}) {
   const app = express();
   const publicDir = path.resolve(process.cwd(), 'public');
 

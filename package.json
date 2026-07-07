@@ -10,7 +10,11 @@
   },
   "dependencies": {
     "express": "^4.19.2",
-    "multer": "^2.2.0"
+    "fast-xml-parser": "^5.9.3",
+    "jszip": "^3.10.1",
+    "multer": "^2.2.0",
+    "node-html-parser": "^9.0.0",
+    "pdfkit": "^0.19.1"
   },
   "devDependencies": {
     "supertest": "^7.0.0",
