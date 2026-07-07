@@ -65,12 +65,11 @@ export async function convertEpubToPdf(
 ) {
   try {
     await convertWithCalibre(inputPath, outputPath);
-  } catch (error) {
-    if (error.message?.includes('Install Calibre')) {
+  } catch (calibreError) {
+    try {
       await fallback(inputPath, outputPath);
-      return;
+    } catch (fallbackError) {
+      throw new Error(`Conversion failed. Calibre: ${calibreError.message}. Built-in renderer: ${fallbackError.message}`);
     }
-
-    throw error;
   }
 }

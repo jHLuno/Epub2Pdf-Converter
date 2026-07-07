@@ -54,4 +54,14 @@ describe('POST /convert', () => {
     expect(response.body.toString()).toContain('%PDF-1.4');
     expect(convert).toHaveBeenCalledOnce();
   });
+
+  it('returns a clear JSON error when an upload is too large', async () => {
+    const fixture = await makeFixture('book.epub', 'this upload is too large for the test limit');
+    const app = createApp({ convert: vi.fn(), maxFileSizeBytes: 8 });
+    const response = await request(app).post('/convert').attach('book', fixture);
+
+    expect(response.status).toBe(413);
+    expect(response.type).toContain('json');
+    expect(response.body.error).toContain('too large');
+  });
 });

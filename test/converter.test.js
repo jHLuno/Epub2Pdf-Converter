@@ -95,13 +95,14 @@ describe('convertEpubToPdf', () => {
     expect(fallback).toHaveBeenCalledWith('/in.epub', '/out.pdf');
   });
 
-  it('keeps real Calibre conversion failures visible', async () => {
+  it('falls back to the built-in converter when Calibre fails on an EPUB', async () => {
     const convertWithCalibre = vi.fn(async () => {
       throw new Error('bad epub');
     });
     const fallback = vi.fn(async () => {});
 
-    await expect(convertEpubToPdf('/in.epub', '/out.pdf', { convertWithCalibre, fallback })).rejects.toThrow('bad epub');
-    expect(fallback).not.toHaveBeenCalled();
+    await convertEpubToPdf('/in.epub', '/out.pdf', { convertWithCalibre, fallback });
+
+    expect(fallback).toHaveBeenCalledWith('/in.epub', '/out.pdf');
   });
 });

@@ -20,6 +20,8 @@ npm start
 
 Open `http://localhost:3000`, choose or drop an EPUB file, and convert it.
 
+Uploads are stored temporarily on disk during conversion. The default upload limit is 750 MB.
+
 ## Development
 
 ```bash
