@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>EPUB to PDF</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="converter" aria-labelledby="title">
+        <div class="intro">
+          <p class="eyebrow">EPUB to PDF</p>
+          <h1 id="title">Convert an EPUB into a PDF.</h1>
+        </div>
+
+        <form id="convertForm" class="panel">
+          <input id="fileInput" class="file-input" name="book" type="file" accept=".epub,application/epub+zip">
+
+          <label id="dropZone" class="drop-zone" for="fileInput">
+            <span class="file-mark" aria-hidden="true">
+              <span class="file-mark-top"></span>
+              <span class="file-mark-label">PDF</span>
+              <span class="file-mark-line"></span>
+              <span class="file-mark-line short"></span>
+            </span>
+            <span class="drop-title">Drop your EPUB here</span>
+            <span class="drop-copy">or tap to choose a file</span>
+          </label>
+
+          <div class="file-row">
+            <span id="fileName" class="file-name">No file selected</span>
+            <button id="clearButton" class="text-button" type="button" hidden>Clear</button>
+          </div>
+
+          <button id="convertButton" class="primary-button" type="submit" disabled>Convert to PDF</button>
+          <p id="status" class="status" role="status" aria-live="polite"></p>
+        </form>
+      </section>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
