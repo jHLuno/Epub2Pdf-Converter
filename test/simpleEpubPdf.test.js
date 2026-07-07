@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import { execFile } from 'node:child_process';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -117,6 +118,65 @@ async function makeRichEpub(filePath) {
   await fs.writeFile(filePath, buffer);
 }
 
+async function makeExternalAssetEpub(filePath, assetUrl) {
+  const zip = new JSZip();
+  zip.file('mimetype', 'application/epub+zip');
+  zip.file(
+    'META-INF/container.xml',
+    `<?xml version="1.0"?>
+    <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+      <rootfiles>
+        <rootfile full-path="OPS/content.opf" media-type="application/oebps-package+xml"/>
+      </rootfiles>
+    </container>`
+  );
+  zip.file(
+    'OPS/content.opf',
+    `<?xml version="1.0" encoding="utf-8"?>
+    <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="book-id" version="3.0">
+      <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+        <dc:title>External Asset Test</dc:title>
+      </metadata>
+      <manifest>
+        <item id="chapter-one" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
+      </manifest>
+      <spine>
+        <itemref idref="chapter-one"/>
+      </spine>
+    </package>`
+  );
+  zip.file(
+    'OPS/chapter1.xhtml',
+    `<!doctype html><html><body><h1>External Asset</h1><p>This chapter should still convert.</p><img src="${assetUrl}"></body></html>`
+  );
+
+  const buffer = await zip.generateAsync({ type: 'nodebuffer' });
+  await fs.writeFile(filePath, buffer);
+}
+
+async function withHangingServer(callback) {
+  const sockets = new Set();
+  const server = http.createServer((_req, _res) => {});
+
+  server.on('connection', (socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const { port } = server.address();
+    await callback(`http://127.0.0.1:${port}/hanging-image.png`);
+  } finally {
+    for (const socket of sockets) {
+      socket.destroy();
+    }
+
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+
 describe('convertSimpleEpubToPdf', () => {
   it('creates a PDF from a minimal EPUB', async () => {
     tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'simple-epub-test-'));
@@ -165,4 +225,18 @@ describe('convertSimpleEpubToPdf', () => {
     const imageRows = stdout.split('\n').filter((line) => /^\s*\d+\s+\d+/.test(line));
     expect(imageRows.length).toBeGreaterThan(0);
   }, 30000);
+
+  it('does not hang on external EPUB assets that never respond', async () => {
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'simple-epub-test-'));
+    const inputPath = path.join(tmpRoot, 'external.epub');
+    const outputPath = path.join(tmpRoot, 'external.pdf');
+
+    await withHangingServer(async (assetUrl) => {
+      await makeExternalAssetEpub(inputPath, assetUrl);
+      await convertSimpleEpubToPdf(inputPath, outputPath);
+    });
+
+    const { stdout } = await execFileAsync('pdftotext', [outputPath, '-']);
+    expect(stdout).toContain('This chapter should still convert.');
+  }, 12000);
 });

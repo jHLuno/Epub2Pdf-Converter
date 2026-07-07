@@ -315,7 +315,19 @@ async function printHtmlToPdf(htmlPath, outputPath) {
 
   try {
     const page = await browser.newPage();
-    await page.goto(pathToFileURL(htmlPath).href, { waitUntil: 'networkidle0' });
+    await page.setRequestInterception(true);
+    page.on('request', (request) => {
+      const url = request.url();
+
+      if (url.startsWith('file:') || url.startsWith('data:') || url.startsWith('blob:')) {
+        request.continue();
+        return;
+      }
+
+      request.abort();
+    });
+
+    await page.goto(pathToFileURL(htmlPath).href, { waitUntil: 'load', timeout: 15000 });
     await page.pdf({
       path: outputPath,
       format: 'A4',
