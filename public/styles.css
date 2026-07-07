@@ -22,6 +22,7 @@
   --moss: #8f9a72;
   --danger: #d98777;
   --shadow: rgba(0, 0, 0, 0.62);
+  --hero-edge: clamp(18px, 3vw, 42px);
 }
 
 * {
@@ -286,7 +287,7 @@ main {
   grid-template-columns: minmax(0, 8fr) minmax(280px, 4fr);
   gap: clamp(20px, 4vw, 64px);
   align-items: end;
-  padding: clamp(18px, 3vw, 42px);
+  padding: var(--hero-edge);
 }
 
 .hero-title-block {
@@ -308,7 +309,7 @@ h1 {
   max-width: 100%;
   margin: 0 0 -0.06em;
   color: var(--cream);
-  font-size: clamp(4.8rem, 14.2vw, 14.2rem);
+  font-size: clamp(4.8rem, 9.4vw, 10rem);
   font-weight: 400;
   line-height: 0.78;
   letter-spacing: 0;
@@ -372,7 +373,7 @@ h1 span {
 
 .upload-panel {
   position: absolute;
-  left: clamp(18px, 3vw, 42px);
+  left: var(--hero-edge);
   right: auto;
   top: clamp(86px, 14vh, 148px);
   bottom: auto;
