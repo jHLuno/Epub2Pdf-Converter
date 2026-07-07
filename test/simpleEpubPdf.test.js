@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import JSZip from 'jszip';
+import { PNG } from 'pngjs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { convertSimpleEpubToPdf, renderTimeoutMs } from '../src/simpleEpubPdf.js';
 
@@ -186,19 +187,22 @@ async function makeFixedLayoutEpub(filePath) {
   );
   zip.file(
     'OPS/page1.xhtml',
-    `<!doctype html>
-    <html>
-      <head><meta charset="utf-8"><meta name="viewport" content="width=420,height=600"></head>
+    `<?xml version="1.0" encoding="UTF-8"?>
+    <html xmlns="http://www.w3.org/1999/xhtml">
+      <head><meta charset="utf-8" /><meta name="viewport" content="width=420,height=600" /></head>
       <body style="width:420px;height:600px;margin:0">
         <span style="position:absolute;left:20px;top:20px;font-size:32px">PAGE ONE ONLY</span>
+        <div style="width:8000px;height:12000px;position:absolute;top:0;left:0;transform-origin:0 0;transform:translate(0,0) scale(0.05)">
+          <div style="position:absolute;left:3000px;top:9000px;width:900px;height:900px;background:#111"></div>
+        </div>
       </body>
     </html>`
   );
   zip.file(
     'OPS/page2.xhtml',
-    `<!doctype html>
-    <html>
-      <head><meta charset="utf-8"><meta name="viewport" content="width=420,height=600"></head>
+    `<?xml version="1.0" encoding="UTF-8"?>
+    <html xmlns="http://www.w3.org/1999/xhtml">
+      <head><meta charset="utf-8" /><meta name="viewport" content="width=420,height=600" /></head>
       <body style="width:420px;height:600px;margin:0">
         <span style="position:absolute;left:20px;top:20px;font-size:32px">PAGE TWO ONLY</span>
       </body>
@@ -207,6 +211,31 @@ async function makeFixedLayoutEpub(filePath) {
 
   const buffer = await zip.generateAsync({ type: 'nodebuffer' });
   await fs.writeFile(filePath, buffer);
+}
+
+async function renderPdfPage(pdfPath, pageNumber, outputPrefix) {
+  await execFileAsync('pdftoppm', ['-f', String(pageNumber), '-singlefile', '-png', '-r', '72', pdfPath, outputPrefix]);
+  return `${outputPrefix}.png`;
+}
+
+async function hasDarkPixelInRegion(imagePath, { left, top, right, bottom }) {
+  const image = PNG.sync.read(await fs.readFile(imagePath));
+  const startX = Math.floor(image.width * left);
+  const endX = Math.floor(image.width * right);
+  const startY = Math.floor(image.height * top);
+  const endY = Math.floor(image.height * bottom);
+
+  for (let y = startY; y < endY; y += 1) {
+    for (let x = startX; x < endX; x += 1) {
+      const index = (image.width * y + x) << 2;
+
+      if (image.data[index] < 60 && image.data[index + 1] < 60 && image.data[index + 2] < 60) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 async function withHangingServer(callback) {
@@ -307,13 +336,17 @@ describe('convertSimpleEpubToPdf', () => {
 
     await convertSimpleEpubToPdf(inputPath, outputPath);
 
-    const { stdout } = await execFileAsync('pdftotext', [outputPath, '-']);
-    const pages = stdout.split('\f');
-    expect(pages[0]).toContain('PAGE ONE ONLY');
-    expect(pages[0]).not.toContain('PAGE TWO ONLY');
-    expect(pages[1]).toContain('PAGE TWO ONLY');
-
     const { stdout: info } = await execFileAsync('pdfinfo', [outputPath]);
     expect(info).toMatch(/Page size:\s+315(?:\.\d+)? x 450(?:\.\d+)? pts/);
+
+    const pageOneImage = await renderPdfPage(outputPath, 1, path.join(tmpRoot, 'fixed-page-one'));
+    await expect(
+      hasDarkPixelInRegion(pageOneImage, {
+        left: 0.25,
+        top: 0.68,
+        right: 0.95,
+        bottom: 0.98
+      })
+    ).resolves.toBe(true);
   }, 30000);
 });

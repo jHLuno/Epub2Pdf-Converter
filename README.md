@@ -7,7 +7,9 @@ A small web app for converting one `.epub` file into one `.pdf` file.
 - Node.js 18 or newer
 - Optional: Calibre for higher-fidelity EPUB layout conversion
 
-The app works without Calibre by using a built-in Chromium-based EPUB-to-PDF fallback. That fallback renders chapter HTML, CSS, images, SVG, and Unicode text before printing to PDF, so it handles Russian/Cyrillic text and normal EPUB graphics much better than a text-only converter. If Calibre is installed, the app still prefers Calibre's `ebook-convert` command because it can preserve complex EPUB layout more faithfully.
+The app works without Calibre by using a built-in Chromium-based EPUB-to-PDF fallback. Reflowable EPUBs are rendered as normal PDF pages with selectable text where possible. Fixed-layout EPUBs, such as InDesign textbook exports, are rendered page-by-page as high-fidelity screenshots and assembled into a PDF so graphics, absolute positioning, and Cyrillic text stay visually intact. Those fixed-layout PDFs are larger and are not searchable until an OCR layer is added.
+
+If Calibre is installed, the app still prefers Calibre's `ebook-convert` command because it can preserve some EPUBs more efficiently. If Calibre fails, the built-in renderer is used as a fallback.
 
 On macOS, installing Calibre in `/Applications` is enough for the app to find it. On Windows or Linux, make sure `ebook-convert` is on your `PATH`, or set `EBOOK_CONVERT_PATH` to the full command path.
 

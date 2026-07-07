@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { XMLParser } from 'fast-xml-parser';
 import JSZip from 'jszip';
 import { parse } from 'node-html-parser';
+import { PDFDocument } from 'pdf-lib';
 import puppeteer from 'puppeteer';
 
 const xmlParser = new XMLParser({
@@ -388,6 +389,7 @@ async function printHtmlToPdf(htmlPath, outputPath, { pageSize } = {}) {
     };
 
     if (pageSize) {
+      pdfOptions.scale = 1.5;
       pdfOptions.margin = {
         top: '0',
         right: '0',
@@ -410,6 +412,75 @@ async function printHtmlToPdf(htmlPath, outputPath, { pageSize } = {}) {
   }
 }
 
+async function renderFixedLayoutPdf({ chapters }, zip, renderDir, outputPath) {
+  await fsp.mkdir(path.dirname(outputPath), { recursive: true });
+
+  const pdf = await PDFDocument.create();
+  const browser = await puppeteer.launch({
+    headless: true,
+    protocolTimeout: renderTimeoutMs,
+    timeout: Math.min(renderTimeoutMs, 60_000),
+    args: ['--allow-file-access-from-files', '--disable-web-security']
+  });
+
+  try {
+    const page = await browser.newPage();
+    page.setDefaultTimeout(renderTimeoutMs);
+    page.setDefaultNavigationTimeout(Math.min(renderTimeoutMs, 60_000));
+    await page.setRequestInterception(true);
+    page.on('request', (request) => {
+      const url = request.url();
+
+      if (url.startsWith('file:') || url.startsWith('data:') || url.startsWith('blob:')) {
+        request.continue();
+        return;
+      }
+
+      request.abort();
+    });
+
+    for (const chapterPath of chapters) {
+      const html = await readZipText(zip, chapterPath);
+      const root = parse(html, {
+        blockTextElements: {
+          script: false,
+          style: true,
+          pre: true
+        },
+        comment: false
+      });
+      const viewport = parseViewport(root) || { width: 482, height: 680 };
+
+      await page.setViewport({
+        width: Math.ceil(viewport.width),
+        height: Math.ceil(viewport.height),
+        deviceScaleFactor: 2
+      });
+      await page.goto(fileUrlForZipPath(renderDir, chapterPath), {
+        waitUntil: 'load',
+        timeout: Math.min(renderTimeoutMs, 60_000)
+      });
+
+      const screenshot = await page.screenshot({
+        type: 'png',
+        fullPage: false
+      });
+      const image = await pdf.embedPng(screenshot);
+      const pdfPage = pdf.addPage([viewport.width * 0.75, viewport.height * 0.75]);
+      pdfPage.drawImage(image, {
+        x: 0,
+        y: 0,
+        width: pdfPage.getWidth(),
+        height: pdfPage.getHeight()
+      });
+    }
+  } finally {
+    await browser.close();
+  }
+
+  await fsp.writeFile(outputPath, await pdf.save());
+}
+
 export async function convertSimpleEpubToPdf(inputPath, outputPath) {
   let zip;
 
@@ -425,6 +496,12 @@ export async function convertSimpleEpubToPdf(inputPath, outputPath) {
   try {
     await extractZip(zip, renderDir);
     const content = await readPackage(zip);
+
+    if (content.fixedLayout) {
+      await renderFixedLayoutPdf(content, zip, renderDir, outputPath);
+      return;
+    }
+
     const printable = await buildPrintableHtml(content, zip, renderDir);
     const htmlPath = path.join(renderDir, 'combined.html');
     await fsp.writeFile(htmlPath, printable.html);

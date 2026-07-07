@@ -14,9 +14,11 @@
     "jszip": "^3.10.1",
     "multer": "^2.2.0",
     "node-html-parser": "^9.0.0",
+    "pdf-lib": "^1.17.1",
     "puppeteer": "^25.3.0"
   },
   "devDependencies": {
+    "pngjs": "^7.0.0",
     "supertest": "^7.0.0",
     "vitest": "^2.1.1"
   }
