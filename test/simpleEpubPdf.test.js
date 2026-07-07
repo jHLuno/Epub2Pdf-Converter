@@ -154,6 +154,61 @@ async function makeExternalAssetEpub(filePath, assetUrl) {
   await fs.writeFile(filePath, buffer);
 }
 
+async function makeFixedLayoutEpub(filePath) {
+  const zip = new JSZip();
+  zip.file('mimetype', 'application/epub+zip');
+  zip.file(
+    'META-INF/container.xml',
+    `<?xml version="1.0"?>
+    <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+      <rootfiles>
+        <rootfile full-path="OPS/content.opf" media-type="application/oebps-package+xml"/>
+      </rootfiles>
+    </container>`
+  );
+  zip.file(
+    'OPS/content.opf',
+    `<?xml version="1.0" encoding="utf-8"?>
+    <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="book-id" version="3.0">
+      <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+        <dc:title>Fixed Layout Test</dc:title>
+        <meta property="rendition:layout">pre-paginated</meta>
+      </metadata>
+      <manifest>
+        <item id="page-one" href="page1.xhtml" media-type="application/xhtml+xml"/>
+        <item id="page-two" href="page2.xhtml" media-type="application/xhtml+xml"/>
+      </manifest>
+      <spine>
+        <itemref idref="page-one"/>
+        <itemref idref="page-two"/>
+      </spine>
+    </package>`
+  );
+  zip.file(
+    'OPS/page1.xhtml',
+    `<!doctype html>
+    <html>
+      <head><meta charset="utf-8"><meta name="viewport" content="width=420,height=600"></head>
+      <body style="width:420px;height:600px;margin:0">
+        <span style="position:absolute;left:20px;top:20px;font-size:32px">PAGE ONE ONLY</span>
+      </body>
+    </html>`
+  );
+  zip.file(
+    'OPS/page2.xhtml',
+    `<!doctype html>
+    <html>
+      <head><meta charset="utf-8"><meta name="viewport" content="width=420,height=600"></head>
+      <body style="width:420px;height:600px;margin:0">
+        <span style="position:absolute;left:20px;top:20px;font-size:32px">PAGE TWO ONLY</span>
+      </body>
+    </html>`
+  );
+
+  const buffer = await zip.generateAsync({ type: 'nodebuffer' });
+  await fs.writeFile(filePath, buffer);
+}
+
 async function withHangingServer(callback) {
   const sockets = new Set();
   const server = http.createServer((_req, _res) => {});
@@ -243,4 +298,22 @@ describe('convertSimpleEpubToPdf', () => {
     const { stdout } = await execFileAsync('pdftotext', [outputPath, '-']);
     expect(stdout).toContain('This chapter should still convert.');
   }, 12000);
+
+  it('keeps fixed-layout absolute-positioned pages separate', async () => {
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'simple-epub-test-'));
+    const inputPath = path.join(tmpRoot, 'fixed.epub');
+    const outputPath = path.join(tmpRoot, 'fixed.pdf');
+    await makeFixedLayoutEpub(inputPath);
+
+    await convertSimpleEpubToPdf(inputPath, outputPath);
+
+    const { stdout } = await execFileAsync('pdftotext', [outputPath, '-']);
+    const pages = stdout.split('\f');
+    expect(pages[0]).toContain('PAGE ONE ONLY');
+    expect(pages[0]).not.toContain('PAGE TWO ONLY');
+    expect(pages[1]).toContain('PAGE TWO ONLY');
+
+    const { stdout: info } = await execFileAsync('pdfinfo', [outputPath]);
+    expect(info).toMatch(/Page size:\s+315(?:\.\d+)? x 450(?:\.\d+)? pts/);
+  }, 30000);
 });

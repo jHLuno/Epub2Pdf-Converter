@@ -121,6 +121,17 @@ function extractTitle(packageDocument) {
   return normalizeWhitespace(title) || 'Converted EPUB';
 }
 
+function isFixedLayout(packageDocument) {
+  const metadata = packageDocument?.package?.metadata;
+  const metadataValues = asArray(metadata?.meta);
+
+  return metadataValues.some((meta) => {
+    const property = meta?.property || meta?.name || '';
+    const value = normalizeWhitespace(textValue(meta) || meta?.content || '');
+    return property === 'rendition:layout' && value === 'pre-paginated';
+  });
+}
+
 async function readPackage(zip) {
   const containerXml = await readZipText(zip, 'META-INF/container.xml');
   const container = xmlParser.parse(containerXml);
@@ -146,7 +157,23 @@ async function readPackage(zip) {
 
   return {
     title: extractTitle(packageDocument),
+    fixedLayout: isFixedLayout(packageDocument),
     chapters: readableItems.map((item) => resolveZipPath(safeOpfPath, item.href))
+  };
+}
+
+function parseViewport(root) {
+  const viewport = root.querySelector('meta[name="viewport"]')?.getAttribute('content') || '';
+  const width = viewport.match(/(?:^|,)\s*width\s*=\s*([0-9.]+)/i)?.[1];
+  const height = viewport.match(/(?:^|,)\s*height\s*=\s*([0-9.]+)/i)?.[1];
+
+  if (!width || !height) {
+    return undefined;
+  }
+
+  return {
+    width: Number(width),
+    height: Number(height)
   };
 }
 
@@ -232,9 +259,10 @@ function collectChapterStyles(root, chapterPath, renderDir) {
   return styles;
 }
 
-async function buildPrintableHtml({ title, chapters }, zip, renderDir) {
+async function buildPrintableHtml({ title, chapters, fixedLayout }, zip, renderDir) {
   const styleBlocks = [];
   const sections = [];
+  let fixedPageSize;
 
   for (const chapterPath of chapters) {
     const html = await readZipText(zip, chapterPath);
@@ -254,9 +282,14 @@ async function buildPrintableHtml({ title, chapters }, zip, renderDir) {
     styleBlocks.push(...collectChapterStyles(root, chapterPath, renderDir));
     rewriteElementUrls(root, chapterPath, renderDir);
 
+    const viewport = parseViewport(root);
+    fixedPageSize ||= fixedLayout ? viewport : undefined;
     const body = root.querySelector('body') || root;
     const bodyStyle = body.getAttribute?.('style');
-    const sectionStyle = bodyStyle ? ` style="${rewriteCssUrls(bodyStyle, chapterPath, renderDir)}"` : '';
+    const viewportStyle =
+      fixedLayout && viewport ? `width:${viewport.width}px;height:${viewport.height}px;margin:0;` : '';
+    const combinedStyle = `${viewportStyle}${bodyStyle ? rewriteCssUrls(bodyStyle, chapterPath, renderDir) : ''}`;
+    const sectionStyle = combinedStyle ? ` style="${combinedStyle}"` : '';
     sections.push(`<section class="epub-chapter"${sectionStyle}>${body.innerHTML}</section>`);
   }
 
@@ -265,15 +298,24 @@ async function buildPrintableHtml({ title, chapters }, zip, renderDir) {
     return entities[char];
   });
 
-  return `<!doctype html>
+  const pageRule = fixedPageSize
+    ? `@page { size: ${fixedPageSize.width}px ${fixedPageSize.height}px; margin: 0; }`
+    : '@page { margin: 18mm 16mm; }';
+  const fixedLayoutCss = fixedPageSize
+    ? `html, body { width: ${fixedPageSize.width}px; margin: 0; padding: 0; }`
+    : 'html, body { margin: 0; padding: 0; }';
+
+  return {
+    pageSize: fixedPageSize,
+    html: `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8">
     <title>${escapedTitle}</title>
     <style>
-      @page { margin: 18mm 16mm; }
+      ${pageRule}
       * { box-sizing: border-box; }
-      html, body { margin: 0; padding: 0; }
+      ${fixedLayoutCss}
       body {
         color: #111;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Arial, sans-serif;
@@ -293,7 +335,9 @@ async function buildPrintableHtml({ title, chapters }, zip, renderDir) {
         white-space: pre-wrap;
       }
       .epub-chapter {
+        position: relative;
         break-after: page;
+        overflow: hidden;
       }
       .epub-chapter:last-child {
         break-after: auto;
@@ -304,10 +348,11 @@ async function buildPrintableHtml({ title, chapters }, zip, renderDir) {
   <body>
     ${sections.join('\n')}
   </body>
-</html>`;
+</html>`
+  };
 }
 
-async function printHtmlToPdf(htmlPath, outputPath) {
+async function printHtmlToPdf(htmlPath, outputPath, { pageSize } = {}) {
   await fsp.mkdir(path.dirname(outputPath), { recursive: true });
 
   const browser = await puppeteer.launch({
@@ -334,20 +379,32 @@ async function printHtmlToPdf(htmlPath, outputPath) {
     });
 
     await page.goto(pathToFileURL(htmlPath).href, { waitUntil: 'load', timeout: Math.min(renderTimeoutMs, 60_000) });
-    await page.pdf({
+    const pdfOptions = {
       path: outputPath,
-      format: 'A4',
       printBackground: true,
       preferCSSPageSize: true,
       timeout: renderTimeoutMs,
-      waitForFonts: false,
-      margin: {
+      waitForFonts: false
+    };
+
+    if (pageSize) {
+      pdfOptions.margin = {
+        top: '0',
+        right: '0',
+        bottom: '0',
+        left: '0'
+      };
+    } else {
+      pdfOptions.format = 'A4';
+      pdfOptions.margin = {
         top: '0.45in',
         right: '0.45in',
         bottom: '0.45in',
         left: '0.45in'
-      }
-    });
+      };
+    }
+
+    await page.pdf(pdfOptions);
   } finally {
     await browser.close();
   }
@@ -368,10 +425,10 @@ export async function convertSimpleEpubToPdf(inputPath, outputPath) {
   try {
     await extractZip(zip, renderDir);
     const content = await readPackage(zip);
-    const html = await buildPrintableHtml(content, zip, renderDir);
+    const printable = await buildPrintableHtml(content, zip, renderDir);
     const htmlPath = path.join(renderDir, 'combined.html');
-    await fsp.writeFile(htmlPath, html);
-    await printHtmlToPdf(htmlPath, outputPath);
+    await fsp.writeFile(htmlPath, printable.html);
+    await printHtmlToPdf(htmlPath, outputPath, { pageSize: printable.pageSize });
   } finally {
     await fsp.rm(renderDir, { recursive: true, force: true });
   }
