@@ -6,7 +6,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import JSZip from 'jszip';
 import { afterEach, describe, expect, it } from 'vitest';
-import { convertSimpleEpubToPdf } from '../src/simpleEpubPdf.js';
+import { convertSimpleEpubToPdf, renderTimeoutMs } from '../src/simpleEpubPdf.js';
 
 const execFileAsync = promisify(execFile);
 const redPng = Buffer.from(
@@ -178,6 +178,10 @@ async function withHangingServer(callback) {
 }
 
 describe('convertSimpleEpubToPdf', () => {
+  it('allows large EPUB render jobs to run longer than Puppeteer defaults', () => {
+    expect(renderTimeoutMs).toBeGreaterThan(30_000);
+  });
+
   it('creates a PDF from a minimal EPUB', async () => {
     tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'simple-epub-test-'));
     const inputPath = path.join(tmpRoot, 'book.epub');

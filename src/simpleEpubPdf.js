@@ -16,6 +16,8 @@ const xmlParser = new XMLParser({
   trimValues: true
 });
 
+export const renderTimeoutMs = Number(process.env.EPUB_RENDER_TIMEOUT_MS || 10 * 60 * 1000);
+
 function asArray(value) {
   if (!value) {
     return [];
@@ -310,11 +312,15 @@ async function printHtmlToPdf(htmlPath, outputPath) {
 
   const browser = await puppeteer.launch({
     headless: true,
+    protocolTimeout: renderTimeoutMs,
+    timeout: Math.min(renderTimeoutMs, 60_000),
     args: ['--allow-file-access-from-files', '--disable-web-security']
   });
 
   try {
     const page = await browser.newPage();
+    page.setDefaultTimeout(renderTimeoutMs);
+    page.setDefaultNavigationTimeout(Math.min(renderTimeoutMs, 60_000));
     await page.setRequestInterception(true);
     page.on('request', (request) => {
       const url = request.url();
@@ -327,12 +333,14 @@ async function printHtmlToPdf(htmlPath, outputPath) {
       request.abort();
     });
 
-    await page.goto(pathToFileURL(htmlPath).href, { waitUntil: 'load', timeout: 15000 });
+    await page.goto(pathToFileURL(htmlPath).href, { waitUntil: 'load', timeout: Math.min(renderTimeoutMs, 60_000) });
     await page.pdf({
       path: outputPath,
       format: 'A4',
       printBackground: true,
       preferCSSPageSize: true,
+      timeout: renderTimeoutMs,
+      waitForFonts: false,
       margin: {
         top: '0.45in',
         right: '0.45in',
