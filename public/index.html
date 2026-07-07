@@ -4,82 +4,141 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Epub2Pdf Converter</title>
+    <meta name="description" content="Convert EPUB books into clean PDF files with a focused local-first web converter.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Almarai:wght@300;400;700;800&family=Instrument+Serif:ital@1&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
-    <div class="atmosphere" aria-hidden="true">
-      <span class="cloud cloud-one"></span>
-      <span class="cloud cloud-two"></span>
-      <span class="sun"></span>
-      <span class="hill hill-back"></span>
-      <span class="hill hill-front"></span>
-    </div>
+    <main>
+      <section class="hero" aria-labelledby="title">
+        <nav class="top-nav" aria-label="Primary">
+          <a href="#convertForm">Convert</a>
+          <a href="#workflow">Workflow</a>
+          <a href="#details">Details</a>
+          <a href="https://github.com/jHLuno/Epub2Pdf-Converter">GitHub</a>
+        </nav>
 
-    <main class="shell">
-      <section class="converter" aria-labelledby="title">
-        <div class="intro">
-          <p class="eyebrow">Epub2Pdf Converter</p>
-          <h1 id="title">Turn EPUBs into quiet little PDFs.</h1>
-          <p class="lede">Drop a book, let the tiny workshop render the pages, and download a clean PDF when the binding is ready.</p>
-          <div class="trust-row" aria-label="Converter details">
-            <span>Local upload</span>
-            <span>30 MB friendly</span>
-            <span>EPUB archive check</span>
-          </div>
-        </div>
-
-        <form id="convertForm" class="panel">
-          <div class="panel-heading">
-            <span class="panel-kicker">Book workshop</span>
-            <span class="panel-status">Ready</span>
+        <div class="hero-frame">
+          <div class="hero-art" aria-hidden="true">
+            <span class="grain"></span>
+            <span class="cloud-field cloud-field-one"></span>
+            <span class="cloud-field cloud-field-two"></span>
+            <span class="ridge"></span>
+            <span class="cabin"></span>
+            <span class="pole pole-one"></span>
+            <span class="pole pole-two"></span>
+            <span class="laptop"></span>
           </div>
 
-          <input id="fileInput" class="file-input" name="book" type="file" accept=".epub,application/epub+zip">
+          <div class="hero-content">
+            <div class="hero-title-block">
+              <p class="eyebrow">offline-first converter</p>
+              <h1 id="title">Epub2Pdf<span aria-hidden="true">*</span></h1>
+            </div>
 
-          <label id="dropZone" class="drop-zone" for="fileInput">
-            <span class="pixel-book" aria-hidden="true">
-              <span class="book-cover"></span>
-              <span class="book-pages"></span>
-              <span class="book-spark spark-one"></span>
-              <span class="book-spark spark-two"></span>
-            </span>
-            <span class="drop-title">Drop your EPUB into the meadow</span>
-            <span class="drop-copy">or tap to choose one file</span>
-          </label>
-
-          <div class="file-row">
-            <span id="fileName" class="file-name">No file selected</span>
-            <button id="clearButton" class="text-button" type="button" hidden>Clear</button>
+            <div class="hero-copy">
+              <p>Convert EPUB books into clean, readable PDFs. Private upload, focused rendering, and a warm little progress scene while the pages bind.</p>
+              <a class="hero-cta" href="#convertForm">
+                Start conversion
+                <span aria-hidden="true">↗</span>
+              </a>
+            </div>
           </div>
 
-          <div id="conversionProgress" class="progress-card" role="progressbar" aria-label="Estimated conversion progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden>
-            <div class="progress-scene" aria-hidden="true">
-              <span class="rail"></span>
-              <span class="runner-book">
-                <span class="runner-page"></span>
+          <form id="convertForm" class="upload-panel">
+            <div class="upload-intro">
+              <span class="book-icon" aria-hidden="true">
+                <span></span>
               </span>
-              <span class="pixel-star star-one"></span>
-              <span class="pixel-star star-two"></span>
-              <span class="pixel-star star-three"></span>
+              <div>
+                <p class="panel-kicker">Drop your EPUB here</p>
+                <p class="upload-copy">or click to browse your files</p>
+                <div class="trust-row" aria-label="Converter details">
+                  <span>EPUB only</span>
+                  <span>Max 30 MB</span>
+                  <span>Secure upload</span>
+                </div>
+              </div>
             </div>
-            <div class="progress-copy">
-              <span id="progressStage" class="progress-stage">Warming up the workshop</span>
-              <span id="progressPercent" class="progress-percent">0%</span>
-            </div>
-            <div class="progress-track">
-              <span id="progressTrack" class="progress-fill"></span>
-            </div>
-            <ol class="stage-list" aria-label="Conversion stages">
-              <li class="stage-item is-active" data-stage="0">Upload</li>
-              <li class="stage-item" data-stage="1">Unpack</li>
-              <li class="stage-item" data-stage="2">Render</li>
-              <li class="stage-item" data-stage="3">Bind</li>
-            </ol>
-          </div>
 
-          <button id="convertButton" class="primary-button" type="submit" disabled>Convert to PDF</button>
-          <p id="status" class="status" role="status" aria-live="polite"></p>
-        </form>
+            <input id="fileInput" class="file-input" name="book" type="file" accept=".epub,application/epub+zip">
+
+            <label id="dropZone" class="drop-zone" for="fileInput">
+              <span class="drop-title">Choose file</span>
+              <span class="drop-copy">Drag EPUB here</span>
+            </label>
+
+            <div class="file-row">
+              <span id="fileName" class="file-name">No file selected</span>
+              <button id="clearButton" class="text-button" type="button" hidden>Clear</button>
+            </div>
+
+            <div id="conversionProgress" class="progress-card" role="progressbar" aria-label="Estimated conversion progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden>
+              <div class="progress-scene" aria-hidden="true">
+                <span class="rail"></span>
+                <span class="runner-book">
+                  <span class="runner-page"></span>
+                </span>
+                <span class="pixel-star star-one"></span>
+                <span class="pixel-star star-two"></span>
+                <span class="pixel-star star-three"></span>
+              </div>
+              <div class="progress-copy">
+                <span id="progressStage" class="progress-stage">Warming up the renderer</span>
+                <span id="progressPercent" class="progress-percent">0%</span>
+              </div>
+              <div class="progress-track">
+                <span id="progressTrack" class="progress-fill"></span>
+              </div>
+              <ol class="stage-list" aria-label="Conversion stages">
+                <li class="stage-item is-active" data-stage="0">Upload</li>
+                <li class="stage-item" data-stage="1">Unpack</li>
+                <li class="stage-item" data-stage="2">Render</li>
+                <li class="stage-item" data-stage="3">Bind</li>
+              </ol>
+            </div>
+
+            <button id="convertButton" class="primary-button" type="submit" disabled>Convert to PDF</button>
+            <p id="status" class="status" role="status" aria-live="polite"></p>
+          </form>
+        </div>
+      </section>
+
+      <section id="workflow" class="statement">
+        <div>
+          <p>Built for readers who need a PDF without ceremony. <em>Choose a book.</em> Wait for the renderer. Save the finished file.</p>
+          <span>The app keeps uploads temporary and checks that files are real EPUB archives before conversion starts.</span>
+        </div>
+      </section>
+
+      <section id="details" class="feature-section" aria-labelledby="details-title">
+        <div class="feature-heading">
+          <h2 id="details-title">Studio-grade conversion for everyday books.</h2>
+          <p>Designed for Railway deployment. Powered by Node, Express, Calibre fallback, and Chromium rendering.</p>
+        </div>
+        <div class="feature-grid">
+          <article class="feature-card visual-card">
+            <span class="mini-landscape" aria-hidden="true"></span>
+            <strong>Your reading archive</strong>
+          </article>
+          <article class="feature-card">
+            <span>01</span>
+            <h3>Archive checked</h3>
+            <p>Renamed PDFs or random files are rejected before conversion work begins.</p>
+          </article>
+          <article class="feature-card">
+            <span>02</span>
+            <h3>Estimated progress</h3>
+            <p>Users see stages, percentage, and approximate remaining time while the renderer works.</p>
+          </article>
+          <article class="feature-card">
+            <span>03</span>
+            <h3>Temporary files</h3>
+            <p>Uploads and render folders are removed after conversion or failed requests.</p>
+          </article>
+        </div>
       </section>
     </main>
 
